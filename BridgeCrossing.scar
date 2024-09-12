@@ -1,0 +1,164 @@
+import("ScarUtil.scar")
+
+function OnInit()
+    EGroup_Destroy(AbandodEntities)
+
+    AbilityList = { 
+        ABILITY.GERMAN.HEAVY_MORTAR_BARRAGE_OFFICER,
+        ABILITY.BRITISH.ARTILLERY_COVER,
+        ABILITY.SOVIET.FIRE_ARTILLERY,
+        ABILITY.WEST_GERMAN.ASSAULT_ARTILLERY,
+        ABILITY.AEF.ARTILLERY_155MM,
+        ABILITY.GERMAN.RAILWAY_GUN_ARTILLERY
+    }
+
+    -- cast ability once in 1 minutes
+    local SecondsInterval = 60 * 1
+    TimeRule_AddInterval(BombRandomPlayerBuilding, SecondsInterval, 1)
+end
+
+function GetPlayerList()
+    local players = {}
+    for i = 1, World_GetPlayerCount() do
+        table.insert(players, World_GetPlayerAt(i))  -- World_GetPlayerAt uses 0-based index
+    end
+    return players
+end
+
+function IsEachTeamPopulated()
+    local players = GetPlayerList()
+    local teams = {}
+
+    -- Count players in each team
+    for _, player in ipairs(players) do
+        local teamID = Player_GetTeam(player)
+        if not teams[teamID] then
+            teams[teamID] = 0
+        end
+        teams[teamID] = teams[teamID] + 1
+    end
+
+    -- Verify if each team has at least one player
+    for teamID, playerCount in pairs(teams) do
+        if playerCount == 0 then
+            return false
+        end
+    end
+
+    return true
+end
+
+function GetRandomAbilityBPromList(abilities)
+    -- Select a random player from the opposite players
+    if #abilities == 0 then
+        print("No abilities found.")
+        return nil
+    end
+
+    local randomIndex = World_GetRand(1, #abilities)
+    return abilities[randomIndex]
+end
+
+function GetRandomOppositePlayer(CurrentPlayer)
+    local AllPlayers = GetPlayerList()
+    local oppositePlayers = {}
+
+    -- Filter out the current player
+    for _, player in ipairs(AllPlayers) do
+        if Player_GetTeam(CurrentPlayer) ~= Player_GetTeam(player) then
+            table.insert(oppositePlayers, player)
+        end
+    end
+
+    if #oppositePlayers == 0 then
+        print("No opposite players found.")
+        return nil
+    end
+
+    -- Select a random player from the opposite players
+    local randomIndex = World_GetRand(1, #oppositePlayers)
+    return oppositePlayers[randomIndex]
+end
+
+function GetRandomPlayer()
+    local players = GetPlayerList()
+    if #players == 0 then
+        return nil  -- No players found
+    end
+    local randomIndex = World_GetRand(1, #players)
+    return players[randomIndex]
+end
+
+function CastAbiltityOnce(Player, AbilityToCast, Position)
+	Player_AddAbility(Player, AbilityToCast)
+	Player_SetAbilityAvailability(Player, AbilityToCast, ITEM_UNLOCKED)
+	Cmd_Ability(Player, AbilityToCast, Position, nil, true)
+	Player_SetAbilityAvailability(Player, AbilityToCast, ITEM_REMOVED)
+end
+
+function GetPlayerBuildings(player)
+    -- Create or find the default EGroup for all entities
+    local allEntities = EGroup_CreateIfNotFound("allEntities")
+    local allSquads = SGroup_CreateIfNotFound("allSquads")
+    Player_GetAll(player, allSquads, allEntities)
+
+    -- Create an EGroup to store only buildings
+    local buildings = EGroup_CreateIfNotFound("buildings")
+
+    -- Iterate through all entities and filter buildings
+    local count = EGroup_Count(allEntities)
+    for i = 1, count do
+        local entity = EGroup_GetSpawnedEntityAt(allEntities, i)
+        if entity and Entity_IsBuilding(entity) then
+            EGroup_Add(buildings, entity)
+        end
+    end
+
+    EGroup_Destroy(allEntities)  -- Clean up the allEntities group
+    return buildings
+end
+
+
+function BombRandomPlayerBuilding()
+
+    if not IsEachTeamPopulated() then
+        PrintOnScreen("Not each team is populated")
+        return -- early exit
+    end
+
+    -- Find random player
+    local RandomPlayer = GetRandomPlayer()
+
+    if not RandomPlayer then
+        PrintOnScreen("Unable to find random player")
+        return
+    end
+
+    -- Find opposite random player
+    local RandomOppositePlayer = GetRandomOppositePlayer(RandomPlayer)
+
+     if not RandomOppositePlayer then
+        PrintOnScreen("Unable to find random opposite player")
+        return
+    end
+
+    local PlayerBuildings = GetPlayerBuildings(RandomPlayer)
+
+    if EGroup_Count(PlayerBuildings) == 0 then
+        PrintOnScreen("Unable to find any buildings related to random player")
+        return
+    end
+
+
+    local RandomPlayerBuildingPosition = Entity_GetPosition(EGroup_GetRandomSpawnedEntity(PlayerBuildings))
+    local Ability = GetRandomAbilityBPromList(AbilityList)
+
+    if not Ability then
+        return
+    end
+
+    -- Cast an ability on random player using opposite player
+    CastAbiltityOnce(RandomOppositePlayer, Ability, RandomPlayerBuildingPosition)
+end
+
+Scar_AddInit(OnInit)
